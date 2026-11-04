@@ -194,10 +194,6 @@ async function tentarCarregar(fn, nomeParaErro) {
 function conectarSocket() {
     socket = io(SOCKET_URL, { auth: { token: getToken() } });
 
-    socket.on('visitantes', (quantidade) => {
-        document.getElementById('visitantes-online-numero').textContent = quantidade;
-    });
-
     socket.on('novoPedido', (dadosDoPedido) => {
         document.getElementById('som-sino').play().catch(() => {});
         mostrarToast(`Novo pedido de ${dadosDoPedido.cliente_nome} (${dadosDoPedido.tipo_entrega})`);

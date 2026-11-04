@@ -20,7 +20,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     aplicarIcones();
     await Promise.all([carregarSecoes(), carregarProdutos(), carregarPrecos(), carregarPromocoes(), carregarStatusLoja(), carregarImagensTamanho()]);
     renderizarCardapio();
-    avisarQueEstouOnline();
     configurarEventos();
 });
 
@@ -814,6 +813,10 @@ async function confirmarPedido() {
         return mostrarAvisoCarrinho('Telefone e endereço são obrigatórios para entrega.');
     }
 
+    if (!document.getElementById('aceite-termos').checked) {
+        return mostrarAvisoCarrinho('Para continuar, marque que você leu e concorda com os Termos de Uso e a Política de Privacidade.');
+    }
+
     const payload = {
         cliente_nome: nome,
         telefone: telefone || null,
@@ -1062,16 +1065,4 @@ function iniciarPollingRastreio(pedidoId) {
             // com um erro por causa de uma consulta de atualização automática.
         }
     }, 20000);
-}
-
-
-// Contador de visitantes ao vivo: só avisa o servidor que essa aba está
-// aberta (não envia nenhum dado). Se a conexão falhar, o cardápio segue normal.
-function avisarQueEstouOnline() {
-    try {
-        if (typeof io !== 'function') return;
-        io(`${SOCKET_URL}/visitantes`, { transports: ['websocket'], reconnectionDelay: 5000 });
-    } catch (err) {
-        console.error('Contador de visitantes indisponível:', err.message);
-    }
 }

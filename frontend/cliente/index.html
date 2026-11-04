@@ -6,6 +6,7 @@
     <title>Estação da Pizza - Cardápio</title>
     <link rel="stylesheet" href="../css/theme.css">
     <link rel="stylesheet" href="css/cliente.css">
+    <link rel="stylesheet" href="../css/legal.css">
 </head>
 <body>
 
@@ -129,6 +130,11 @@
                 <p class="aviso-pix">⚠️ Sua pizza só vai para produção depois de enviarmos o comprovante do Pix pelo WhatsApp da pizzaria.</p>
             </div>
 
+            <label class="linha-aceite">
+                <input type="checkbox" id="aceite-termos">
+                <span>Li e concordo com os <a href="../legal/termos.html" target="_blank" rel="noopener">Termos de Uso</a> e a <a href="../legal/privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a>, e autorizo o uso do meu nome, telefone e endereço para preparar e entregar este pedido.</span>
+            </label>
+
             <p id="aviso-carrinho" class="erro oculto"></p>
             <button id="btn-confirmar-pedido" class="botao-principal">Confirmar Pedido</button>
         </div>
@@ -213,13 +219,18 @@
     </div>
 
     <p class="rodape-copyright">© <span id="rodape-ano"></span> Estação da Pizza · Todos os direitos reservados</p>
+    <p class="links-legais-rodape">
+        <a href="../legal/privacidade.html">Privacidade</a> ·
+        <a href="../legal/termos.html">Termos de Uso</a> ·
+        <a href="../legal/cookies.html">Cookies</a>
+    </p>
 </footer>
 
     <audio id="som-confirmacao" src="../sounds/sino.mp3" preload="auto"></audio>
 
 
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="../js/api.js"></script>
+    <script src="../js/legal.js"></script>
     <script src="../js/tema.js"></script>
     <script src="../js/icones.js"></script>
     <script src="js/cliente.js"></script>
