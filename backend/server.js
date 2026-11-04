@@ -34,6 +34,12 @@ if (origensPermitidas.length === 0) {
 }
 
 const app = express();
+app.use(cors({
+  origin: 'https://cardapiodigital-1xby.onrender.com',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json());
 app.use(helmet()); // cabeçalhos de segurança padrão (X-Content-Type-Options, HSTS, etc.)
 app.use(compression()); // reduz o tamanho das respostas, ajuda em conexões mais lentas
 app.use(cors(configCors));
