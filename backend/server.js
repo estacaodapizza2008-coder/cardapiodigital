@@ -28,24 +28,19 @@ const origensPermitidas = (process.env.FRONTEND_ORIGINS || '')
     .split(',')
     .map(o => o.trim())
     .filter(Boolean);
-const configCors = { origin: origensPermitidas.length > 0 ? origensPermitidas : '*' };
-if (origensPermitidas.length === 0) {
-    console.warn('AVISO: FRONTEND_ORIGINS não definida - CORS liberado para qualquer origem. Configure em produção.');
-}
+const configCors = {
+    origin: origensPermitidas.length > 0 ? origensPermitidas : '*',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
 
 const app = express();
-app.use(cors({
-  origin: 'https://cardapiodigital1.onrender.com',
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-app.use(express.json());
-app.use(helmet()); // cabeçalhos de segurança padrão (X-Content-Type-Options, HSTS, etc.)
-app.use(compression()); // reduz o tamanho das respostas, ajuda em conexões mais lentas
 app.use(cors(configCors));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
+app.use(compression());
 app.use(limitarGeral);
-// Limite maior que o padrão (100kb) porque as fotos de tamanho chegam em
-// base64 dentro do JSON, não como arquivo separado.
 app.use(express.json({ limit: '8mb' }));
 
 const server = http.createServer(app);
