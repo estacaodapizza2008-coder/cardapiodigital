@@ -339,20 +339,19 @@ exports.rastrearPedido = async (req, res) => {
         }
 
         res.json({
-            sabores: lerSabores(item.sabores),
-            numero_pedido_dia: pedido.numero_pedido_dia,
-            status: pedido.status,
-            tipo_entrega: pedido.tipo_entrega,
-            criado_em: pedido.criado_em,
-            total: pedido.total,
-            itens: pedido.itens.map(item => ({
-                tipo_item: item.tipo_item,
-                nome_item: item.nome_item,
-                sabores: item.sabores ? JSON.parse(item.sabores) : null,
-                fatias: item.fatias,
-                quantidade: item.quantidade
-            }))
-        });
+    numero_pedido_dia: pedido.numero_pedido_dia,
+    status: pedido.status,
+    tipo_entrega: pedido.tipo_entrega,
+    criado_em: pedido.criado_em,
+    total: pedido.total,
+    itens: pedido.itens.map(item => ({
+        tipo_item: item.tipo_item,
+        nome_item: item.nome_item,
+        sabores: lerSabores(item.sabores),
+        fatias: item.fatias,
+        quantidade: item.quantidade
+    }))
+});
     } catch (err) {
         console.error('Erro ao rastrear pedido:', err.message);
         res.status(500).json({ erro: 'Erro ao buscar o pedido.' });
