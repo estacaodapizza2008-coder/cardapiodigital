@@ -35,7 +35,7 @@ if (origensPermitidas.length === 0) {
 
 const app = express();
 app.use(cors({
-  origin: 'https://cardapiodigital-1xby.onrender.com',
+  origin: 'https://cardapiodigital1.onrender.com',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
