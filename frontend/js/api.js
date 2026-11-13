@@ -1,7 +1,7 @@
 // ATENÇÃO: quando for publicar online, troque as duas linhas abaixo
 // pelo endereço do seu backend hospedado (ex: https://sua-api.onrender.com)
-const API_URL = 'https://cardapiodigital1.onrender.com';
-const SOCKET_URL = 'https://cardapiodigital1.onrender.com';
+const API_URL = 'https://cardapiodigital1.onrender.com/api';
+const SOCKET_URL = 'https://cardapiodigital1.onrender.com/api';
 
 function getToken() {
     return localStorage.getItem('pizzaria_token');
