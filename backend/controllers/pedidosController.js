@@ -1,3 +1,12 @@
+function lerSabores(valor) {
+  if (valor == null || valor === '') return null;
+  if (typeof valor !== 'string') return valor; // já veio como objeto/array (coluna jsonb)
+  try {
+    return JSON.parse(valor);
+  } catch {
+    return [valor]; // texto solto, como "calabresa", vira lista com um sabor
+  }
+}
 const Pedido = require('../models/Pedido');
 const Produto = require('../models/Produto');
 const Configuracao = require('../models/Configuracao');
@@ -330,7 +339,7 @@ exports.rastrearPedido = async (req, res) => {
         }
 
         res.json({
-            id: pedido.id,
+            sabores: lerSabores(item.sabores),
             numero_pedido_dia: pedido.numero_pedido_dia,
             status: pedido.status,
             tipo_entrega: pedido.tipo_entrega,
