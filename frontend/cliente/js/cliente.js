@@ -795,7 +795,39 @@ function controlarInfoPix(valor) {
     }
 }
 
+// ---------- Proteção contra pedido duplicado / travamento ----------
+// Mesmo limite do servidor (MAX_ITENS no pedidosController). Se mudar lá, mude aqui.
+const MAX_ITENS_PEDIDO = 50;
+// Se o servidor demorar mais que isso (ex: Render "acordando"), desistimos de
+// esperar e avisamos - mas o reenvio é seguro por causa da chave abaixo.
+const TEMPO_LIMITE_PEDIDO_MS = 60000;
+
+let enviandoPedido = false;   // true enquanto um envio está em andamento
+let chavePedidoAtual = null;  // { chave, assinatura } do último envio
+
+function gerarChavePedido() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// A chave identifica "este pedido". Se o cliente reenviar o MESMO carrinho
+// (depois de uma demora ou erro de rede), a chave é a mesma e o servidor não
+// cria outro pedido. Se ele mudar qualquer coisa no carrinho/dados, a
+// assinatura muda e nasce uma chave nova - assim um pedido alterado nunca é
+// confundido com o anterior.
+function chaveParaPedido(payloadSemChave) {
+    const assinatura = JSON.stringify(payloadSemChave);
+    if (!chavePedidoAtual || chavePedidoAtual.assinatura !== assinatura) {
+        chavePedidoAtual = { chave: gerarChavePedido(), assinatura };
+    }
+    return chavePedidoAtual.chave;
+}
+
 async function confirmarPedido() {
+    if (enviandoPedido) return; // ignora clique duplo enquanto já está enviando
+
     const aviso = document.getElementById('aviso-carrinho');
     aviso.classList.add('oculto');
 
@@ -808,6 +840,9 @@ async function confirmarPedido() {
     const troco = document.getElementById('troco').value;
 
     if (CARRINHO.length === 0) return mostrarAvisoCarrinho('Seu carrinho está vazio.');
+    if (CARRINHO.length > MAX_ITENS_PEDIDO) {
+        return mostrarAvisoCarrinho(`Seu carrinho tem itens demais (máximo de ${MAX_ITENS_PEDIDO} itens diferentes por pedido). Divida em dois pedidos.`);
+    }
     if (!nome) return mostrarAvisoCarrinho('Digite seu nome.');
     if (tipoEntrega === 'entrega' && (!telefone || !endereco)) {
         return mostrarAvisoCarrinho('Telefone e endereço são obrigatórios para entrega.');
@@ -842,12 +877,43 @@ async function confirmarPedido() {
         })
     };
 
+    payload.chave_idempotencia = chaveParaPedido(payload);
+
+    const botao = document.getElementById('btn-confirmar-pedido');
+    const textoOriginal = botao.textContent;
+    enviandoPedido = true;
+    botao.disabled = true;
+    botao.textContent = 'Enviando seu pedido...';
+
+    const controle = new AbortController();
+    const temporizador = setTimeout(() => controle.abort(), TEMPO_LIMITE_PEDIDO_MS);
+    let sucesso = false;
+
     try {
-        const resultado = await apiFetch('/pedidos', { method: 'POST', body: JSON.stringify(payload) });
+        const resultado = await apiFetch('/pedidos', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            signal: controle.signal
+        });
+        sucesso = true;
         document.getElementById('som-confirmacao').play().catch(() => {});
         mostrarTelaSucesso(resultado, formaPagamento, nome);
     } catch (err) {
-        mostrarAvisoCarrinho(err.message);
+        const semResposta = err.name === 'AbortError' || err instanceof TypeError;
+        if (semResposta) {
+            mostrarAvisoCarrinho('Não conseguimos confirmar seu pedido agora (a conexão demorou ou caiu). Toque em "Confirmar Pedido" de novo - seu pedido não será duplicado.');
+        } else {
+            mostrarAvisoCarrinho(err.message);
+        }
+    } finally {
+        clearTimeout(temporizador);
+        enviandoPedido = false;
+        // Depois de um pedido confirmado o botão fica travado (a tela de
+        // sucesso está aberta); em caso de erro, volta ao normal.
+        if (!sucesso) {
+            botao.disabled = false;
+            botao.textContent = textoOriginal;
+        }
     }
 }
 

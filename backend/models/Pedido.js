@@ -3,7 +3,7 @@ const db = require('../config/db');
 const Pedido = {
     // Cria o pedido + seus itens dentro de uma transação
     // (se algum item falhar, o pedido inteiro é desfeito)
-    async criar({ cliente_nome, telefone, tipo_entrega, endereco, observacoes, forma_pagamento, troco_para, taxa_entrega, cupom_codigo, desconto, total, itens, dia_operacional }) {
+    async criar({ cliente_nome, telefone, tipo_entrega, endereco, observacoes, forma_pagamento, troco_para, taxa_entrega, cupom_codigo, desconto, total, itens, dia_operacional, chave_idempotencia }) {
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
@@ -27,30 +27,33 @@ const Pedido = {
             const [[{ numero }]] = await connection.query('SELECT LAST_INSERT_ID() AS numero');
 
             const [resultPedido] = await connection.query(
-                `INSERT INTO pedidos (cliente_nome, telefone, tipo_entrega, endereco, observacoes, forma_pagamento, troco_para, taxa_entrega, cupom_codigo, desconto, total, dia_operacional, numero_pedido_dia)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [cliente_nome, telefone || null, tipo_entrega, endereco || null, observacoes || null, forma_pagamento, troco_para || 0, taxa_entrega || 0, cupom_codigo || null, desconto || 0, total, dia_operacional, numero]
+                `INSERT INTO pedidos (cliente_nome, telefone, tipo_entrega, endereco, observacoes, forma_pagamento, troco_para, taxa_entrega, cupom_codigo, desconto, total, dia_operacional, numero_pedido_dia, chave_idempotencia)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [cliente_nome, telefone || null, tipo_entrega, endereco || null, observacoes || null, forma_pagamento, troco_para || 0, taxa_entrega || 0, cupom_codigo || null, desconto || 0, total, dia_operacional, numero, chave_idempotencia || null]
             );
 
             const pedidoId = resultPedido.insertId;
 
-            for (const item of itens) {
-                await connection.query(
-                    `INSERT INTO itens_pedido (pedido_id, tipo_item, pizza_categoria, fatias, sabores, borda, nome_item, quantidade, preco_unitario)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        pedidoId,
-                        item.tipo_item,
-                        item.pizza_categoria || null,
-                        item.fatias || null,
-                        item.sabores ? JSON.stringify(item.sabores) : null,
-                        item.borda || null,
-                        item.nome_item || null,
-                        item.quantidade || 1,
-                        item.preco_unitario
-                    ]
-                );
-            }
+            // Todos os itens entram num ÚNICO INSERT (várias linhas de uma vez).
+            // Antes era um INSERT por item, e como o banco fica em outro
+            // datacenter, cada item custava uma ida-e-volta pela rede: um
+            // pedido com 40 itens fazia 40 viagens seguidas.
+            const linhasItens = itens.map(item => [
+                pedidoId,
+                item.tipo_item,
+                item.pizza_categoria || null,
+                item.fatias || null,
+                item.sabores ? JSON.stringify(item.sabores) : null,
+                item.borda || null,
+                item.nome_item || null,
+                item.quantidade || 1,
+                item.preco_unitario
+            ]);
+            await connection.query(
+                `INSERT INTO itens_pedido (pedido_id, tipo_item, pizza_categoria, fatias, sabores, borda, nome_item, quantidade, preco_unitario)
+                 VALUES ?`,
+                [linhasItens]
+            );
 
             await connection.commit();
             return { id: pedidoId, numero_pedido_dia: numero };
@@ -146,6 +149,17 @@ const Pedido = {
     async buscarStatusPublico(id) {
         const [rows] = await db.query('SELECT status FROM pedidos WHERE id = ?', [id]);
         return rows[0] ? rows[0].status : null;
+    },
+
+    // Usado pela proteção contra pedido duplicado: se a mesma chave já criou
+    // um pedido, devolve esse pedido em vez de criar outro.
+    async buscarPorChaveIdempotencia(chave) {
+        const [rows] = await db.query(
+            `SELECT id, numero_pedido_dia, total, taxa_entrega, desconto
+             FROM pedidos WHERE chave_idempotencia = ? LIMIT 1`,
+            [chave]
+        );
+        return rows[0] || null;
     },
 
     async buscarPorId(id) {

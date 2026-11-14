@@ -155,7 +155,12 @@ CREATE TABLE pedidos (
     -- cozinha como "Pedido #0007") - reinicia em 1 a cada novo expediente.
     -- Diferente do `id` acima, que é a chave real do banco e nunca reinicia.
     numero_pedido_dia INT NOT NULL,
-    INDEX idx_pedidos_dia_operacional (dia_operacional)
+    -- Código gerado pelo cardápio a cada pedido. UNIQUE: se o mesmo envio
+    -- chegar duas vezes (duplo clique, reenvio), o banco só grava um.
+    -- NULL é permitido (pedidos antigos e os lançados pelo admin).
+    chave_idempotencia VARCHAR(64) DEFAULT NULL,
+    INDEX idx_pedidos_dia_operacional (dia_operacional),
+    UNIQUE INDEX uq_pedidos_chave_idempotencia (chave_idempotencia)
 );
 
 -- Contador atômico usado só internamente pra gerar o numero_pedido_dia sem

@@ -17,6 +17,17 @@ const SecaoCardapio = require('../models/SecaoCardapio');
 const validarCupom = require('../utils/validarCupom');
 const { obterDiaOperacional } = require('../utils/diaOperacional');
 
+// Limites de segurança do pedido. Ajuste aqui se a pizzaria precisar de mais.
+// MAX_ITENS conta LINHAS do carrinho (ex: "2x Calabresa" é 1 linha).
+const MAX_ITENS = 50;
+const MAX_QUANTIDADE = 99;
+
+// Chave de idempotência: um código aleatório que o cardápio gera por pedido.
+// Se a mesma chave chegar duas vezes (duplo clique, reenvio depois de uma
+// resposta lenta), o servidor devolve o pedido que já existe em vez de criar
+// outro. Aceita só letras, números e hífen, de 16 a 64 caracteres.
+const FORMATO_CHAVE = /^[A-Za-z0-9-]{16,64}$/;
+
 // Validação estrutural básica do corpo do pedido (antes de calcular preços)
 function validarEstrutura(body) {
     const erros = [];
@@ -28,7 +39,25 @@ function validarEstrutura(body) {
     if (tipo_entrega === 'entrega' && (!body.telefone || !body.endereco)) {
         erros.push('Telefone e endereço são obrigatórios para entrega.');
     }
-    if (!Array.isArray(itens) || itens.length === 0) erros.push('O pedido precisa ter ao menos um item.');
+    if (!Array.isArray(itens) || itens.length === 0) {
+        erros.push('O pedido precisa ter ao menos um item.');
+    } else if (itens.length > MAX_ITENS) {
+        erros.push(`O pedido pode ter no máximo ${MAX_ITENS} itens diferentes. Divida em dois pedidos.`);
+    } else {
+        // Sem isso, dava pra mandar quantidade negativa (ou fracionada) e
+        // derrubar o total do pedido.
+        itens.forEach((item, i) => {
+            const q = item && item.quantidade;
+            if (q !== undefined && q !== null && (!Number.isInteger(q) || q < 1 || q > MAX_QUANTIDADE)) {
+                erros.push(`Item ${i + 1}: quantidade inválida (de 1 a ${MAX_QUANTIDADE}).`);
+            }
+        });
+    }
+
+    if (body.chave_idempotencia !== undefined && body.chave_idempotencia !== null &&
+        !FORMATO_CHAVE.test(String(body.chave_idempotencia))) {
+        erros.push('Chave do pedido inválida.');
+    }
 
     return erros;
 }
@@ -190,18 +219,48 @@ async function processarItens(itensRecebidos) {
 }
 
 // Lógica compartilhada entre o pedido do cliente e o pedido criado pelo admin
+// Resposta de um pedido que já existe (mesma chave de idempotência enviada
+// de novo): mesmo formato da resposta de criação, pro cardápio não perceber
+// diferença e mostrar a tela de sucesso normalmente.
+function respostaPedidoExistente(existente, mensagemSucesso) {
+    return {
+        status: 200,
+        corpo: {
+            mensagem: mensagemSucesso,
+            pedidoId: existente.id,
+            numeroPedidoDia: existente.numero_pedido_dia,
+            total: Number(existente.total),
+            taxa_entrega: Number(existente.taxa_entrega),
+            desconto: Number(existente.desconto),
+            repetido: true
+        }
+    };
+}
+
 async function processarECriarPedido(req, mensagemSucesso) {
-    const { erros, itensProcessados } = await processarItens(req.body.itens);
+    const chave = req.body.chave_idempotencia || null;
+
+    // Pedido repetido: se essa chave já criou um pedido, devolve ele e pronto
+    // (sem recalcular nada, sem usar o cupom de novo, sem avisar a cozinha de novo).
+    if (chave) {
+        const existente = await Pedido.buscarPorChaveIdempotencia(chave);
+        if (existente) return respostaPedidoExistente(existente, mensagemSucesso);
+    }
+
+    // Itens e configuração não dependem um do outro: buscamos juntos (uma
+    // ida-e-volta ao banco em vez de duas, uma depois da outra).
+    // A config é usada pra taxa de entrega e pra descobrir o dia operacional
+    // (expediente) do pedido - ver backend/utils/diaOperacional.js.
+    const [{ erros, itensProcessados }, config] = await Promise.all([
+        processarItens(req.body.itens),
+        Configuracao.obter()
+    ]);
     if (erros.length > 0) {
         return { status: 400, corpo: { erro: 'Itens do pedido inválidos', detalhes: erros } };
     }
 
     const subtotal = itensProcessados.reduce((soma, item) => soma + item.preco_unitario * item.quantidade, 0);
 
-    // Config buscada sempre agora (não só pra taxa de entrega): também é
-    // usada pra calcular a qual dia operacional (expediente) o pedido
-    // pertence - ver backend/utils/diaOperacional.js.
-    const config = await Configuracao.obter();
     const diaOperacional = obterDiaOperacional(config);
 
     // Taxa de entrega: só se aplica quando o pedido é do tipo "entrega",
@@ -228,15 +287,29 @@ async function processarECriarPedido(req, mensagemSucesso) {
 
     const total = subtotal + taxaEntrega - desconto;
 
-    const { id: pedidoId, numero_pedido_dia: numeroPedidoDia } = await Pedido.criar({
-        ...req.body,
-        total,
-        taxa_entrega: taxaEntrega,
-        cupom_codigo: cupomAplicado ? cupomAplicado.codigo : null,
-        desconto,
-        itens: itensProcessados,
-        dia_operacional: diaOperacional
-    });
+    let pedidoCriado;
+    try {
+        pedidoCriado = await Pedido.criar({
+            ...req.body,
+            total,
+            taxa_entrega: taxaEntrega,
+            cupom_codigo: cupomAplicado ? cupomAplicado.codigo : null,
+            desconto,
+            itens: itensProcessados,
+            dia_operacional: diaOperacional,
+            chave_idempotencia: chave
+        });
+    } catch (err) {
+        // Dois envios com a mesma chave chegaram ao mesmo tempo: o banco
+        // deixa só um gravar (chave única) e o outro cai aqui. Devolvemos o
+        // pedido que venceu, em vez de dar erro.
+        if (err.code === 'ER_DUP_ENTRY' && chave) {
+            const existente = await Pedido.buscarPorChaveIdempotencia(chave);
+            if (existente) return respostaPedidoExistente(existente, mensagemSucesso);
+        }
+        throw err;
+    }
+    const { id: pedidoId, numero_pedido_dia: numeroPedidoDia } = pedidoCriado;
 
     if (cupomAplicado) {
         await Cupom.incrementarUso(cupomAplicado.id);
