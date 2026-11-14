@@ -107,24 +107,6 @@ const Pedido = {
         return dias;
     },
 
-    // Usado pelo checkout do cliente: ao digitar o telefone, busca o
-    // nome/endereço do pedido mais recente feito com esse número, pra não
-    // precisar redigitar tudo de novo. Compara só os dígitos (ignora
-    // parênteses, espaço e hífen) porque o telefone é digitado livre, sem
-    // máscara obrigatória, então pode estar formatado de jeitos diferentes
-    // de um pedido pro outro.
-    async buscarDadosClientePorTelefone(digitosTelefone) {
-        const [linhas] = await db.query(
-            `SELECT cliente_nome, endereco, tipo_entrega
-             FROM pedidos
-             WHERE REPLACE(REPLACE(REPLACE(REPLACE(telefone, ' ', ''), '-', ''), '(', ''), ')', '') = ?
-             ORDER BY criado_em DESC
-             LIMIT 1`,
-            [digitosTelefone]
-        );
-        return linhas[0] || null;
-    },
-
     // Usado pelo card "Acompanhar meu pedido": exige nome E telefone batendo
     // (não só o telefone) pra dificultar alguém rastrear o pedido de outra
     // pessoa só adivinhando/sabendo o número. Pega sempre o pedido mais

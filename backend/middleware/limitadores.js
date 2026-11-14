@@ -59,4 +59,27 @@ const limitarStatusPedido = rateLimit({
     message: { erro: 'Muitas consultas em pouco tempo. Aguarde alguns minutos.' }
 });
 
-module.exports = { limitarLogin, limitarCriacaoPedido, limitarGeral, limitarBuscaCliente, limitarStatusPedido };
+// Validação de cupom (rota pública): sem limite próprio, dava pra ficar
+// testando códigos até acertar um. Conta SÓ as tentativas que falham
+// (skipSuccessfulRequests), então o cliente que usa um cupom válido nunca
+// gasta esse limite - só quem fica chutando códigos.
+const limitarValidacaoCupom = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 20,
+    skipSuccessfulRequests: true,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { erro: 'Muitas tentativas de cupom. Aguarde alguns minutos.' }
+});
+
+// Cadastro de usuário: raríssimo no dia a dia, então o limite é bem baixo.
+// Protege o código de instalação (SETUP_TOKEN) contra tentativa de adivinhar.
+const limitarCadastro = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { erro: 'Muitas tentativas de cadastro. Tente novamente mais tarde.' }
+});
+
+module.exports = { limitarLogin, limitarCriacaoPedido, limitarGeral, limitarBuscaCliente, limitarStatusPedido, limitarValidacaoCupom, limitarCadastro };

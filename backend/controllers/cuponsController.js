@@ -75,16 +75,26 @@ exports.validar = async (req, res) => {
     if (!(Number(subtotal) > 0)) {
         return res.status(400).json({ erro: 'Subtotal inválido.' });
     }
-
-    const resultado = await validarCupom(codigo, Number(subtotal));
-    if (resultado.erro) {
-        return res.status(400).json({ erro: resultado.erro });
+    if (typeof codigo !== 'string' || codigo.length > 40) {
+        return res.status(400).json({ erro: 'Código de cupom inválido.' });
     }
 
-    res.json({
-        codigo: resultado.cupom.codigo,
-        tipo: resultado.cupom.tipo,
-        valor: Number(resultado.cupom.valor),
-        desconto: resultado.desconto
-    });
+    // try/catch: sem ele, um erro aqui virava "promessa rejeitada sem
+    // tratamento" e, em versões recentes do Node, derrubava o servidor inteiro.
+    try {
+        const resultado = await validarCupom(codigo, Number(subtotal));
+        if (resultado.erro) {
+            return res.status(400).json({ erro: resultado.erro });
+        }
+
+        res.json({
+            codigo: resultado.cupom.codigo,
+            tipo: resultado.cupom.tipo,
+            valor: Number(resultado.cupom.valor),
+            desconto: resultado.desconto
+        });
+    } catch (err) {
+        console.error('Erro ao validar cupom:', err.message);
+        res.status(500).json({ erro: 'Erro ao validar o cupom.' });
+    }
 };

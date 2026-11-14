@@ -4,7 +4,7 @@ const Cupom = require('../models/Cupom');
 // e do limite de uso) e calcula o desconto em cima do subtotal informado.
 // Retorna { erro } se inválido, ou { cupom, desconto } se ok.
 async function validarCupom(codigo, subtotal) {
-    if (!codigo || !codigo.trim()) {
+    if (typeof codigo !== 'string' || !codigo.trim()) {
         return { erro: 'Informe um código de cupom.' };
     }
 

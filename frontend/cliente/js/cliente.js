@@ -754,30 +754,45 @@ function controlarCamposEntrega(valor) {
 // estiverem vazios, pra nunca sobrescrever algo que o cliente já digitou
 // na mão. Silenciosamente não faz nada se não achar (telefone novo é o
 // caso mais comum, não é um erro).
-async function buscarDadosClienteSalvos() {
-    const campoTelefone = document.getElementById('telefone');
-    const digitos = campoTelefone.value.replace(/\D/g, '');
-    const mensagem = document.getElementById('mensagem-cliente-reconhecido');
-    mensagem.classList.add('oculto');
+// ---------- Dados do cliente lembrados NESTE aparelho ----------
+// Antes, o site perguntava ao servidor "quem é o dono deste telefone?" e
+// recebia nome e endereço - o que deixava qualquer pessoa descobrir o
+// endereço de alguém só sabendo o número. Agora nome, telefone e endereço
+// do último pedido ficam só no navegador do próprio cliente.
+const CHAVE_DADOS_CLIENTE = 'pizzaria_dados_cliente';
 
-    if (digitos.length < 10) return; // telefone ainda incompleto
-
+function lerDadosClienteSalvos() {
     try {
-        const dados = await apiFetch(`/pedidos/cliente/${digitos}`);
-
-        const campoNome = document.getElementById('nome');
-        const campoEndereco = document.getElementById('endereco');
-        if (!campoNome.value.trim()) campoNome.value = dados.cliente_nome;
-        if (!campoEndereco.value.trim()) campoEndereco.value = dados.endereco || '';
-
-        const primeiroNome = dados.cliente_nome.split(' ')[0];
-        mensagem.textContent = `Bem-vindo(a) de volta, ${primeiroNome}! Preenchemos seus dados do último pedido.`;
-        mensagem.classList.remove('oculto');
-    } catch (err) {
-        // 404 (telefone novo, sem pedido anterior) é o caso normal - não avisa nada.
-        // Erros de rede/limite também ficam quietos aqui: é só uma comodidade,
-        // não deve travar o cliente terminando de preencher o pedido na mão.
+        const dados = JSON.parse(localStorage.getItem(CHAVE_DADOS_CLIENTE));
+        return dados && typeof dados === 'object' ? dados : null;
+    } catch {
+        return null;
     }
+}
+
+function salvarDadosCliente(dados) {
+    try {
+        localStorage.setItem(CHAVE_DADOS_CLIENTE, JSON.stringify(dados));
+    } catch {
+        // Navegador bloqueou o armazenamento (aba anônima, etc.): sem problema,
+        // é só uma comodidade.
+    }
+}
+
+function preencherDadosClienteSalvos() {
+    const dados = lerDadosClienteSalvos();
+    if (!dados || !dados.nome) return;
+
+    const campoNome = document.getElementById('nome');
+    const campoTelefone = document.getElementById('telefone');
+    const campoEndereco = document.getElementById('endereco');
+    if (!campoNome.value.trim()) campoNome.value = String(dados.nome).slice(0, 100);
+    if (!campoTelefone.value.trim()) campoTelefone.value = String(dados.telefone || '').slice(0, 20);
+    if (!campoEndereco.value.trim()) campoEndereco.value = String(dados.endereco || '').slice(0, 500);
+
+    const mensagem = document.getElementById('mensagem-cliente-reconhecido');
+    mensagem.textContent = `Bem-vindo(a) de volta, ${String(dados.nome).split(' ')[0]}! Preenchemos seus dados do último pedido neste aparelho.`;
+    mensagem.classList.remove('oculto');
 }
 
 function controlarTroco(valor) {
@@ -896,6 +911,7 @@ async function confirmarPedido() {
             signal: controle.signal
         });
         sucesso = true;
+        salvarDadosCliente({ nome, telefone, endereco });
         document.getElementById('som-confirmacao').play().catch(() => {});
         mostrarTelaSucesso(resultado, formaPagamento, nome);
     } catch (err) {
@@ -977,7 +993,7 @@ function configurarEventos() {
     document.getElementById('barra-carrinho').addEventListener('click', abrirCarrinho);
     document.getElementById('fechar-sheet-carrinho').addEventListener('click', fecharCarrinho);
     document.getElementById('btn-confirmar-pedido').addEventListener('click', confirmarPedido);
-    document.getElementById('telefone').addEventListener('blur', buscarDadosClienteSalvos);
+    preencherDadosClienteSalvos();
     document.getElementById('btn-aplicar-cupom').addEventListener('click', aplicarCupom);
 
     document.getElementById('btn-copiar-pix').addEventListener('click', copiarChavePix);

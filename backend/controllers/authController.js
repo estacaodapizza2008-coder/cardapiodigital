@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Usuario = require('../models/Usuario');
@@ -35,19 +36,54 @@ exports.login = async (req, res) => {
 };
 
 // Cadastra um novo usuário (admin/cozinha).
-// Regra de segurança: enquanto não existir NENHUM usuário no banco, a rota
-// fica aberta só pra criar o primeiro admin (bootstrap inicial do sistema).
-// A partir do momento que já existe pelo menos um usuário, só quem já está
-// logado como admin pode cadastrar outro - senão qualquer pessoa na internet
-// conseguiria criar uma conta admin sozinha.
+//
+// Regras de segurança:
+// - PRIMEIRO usuário (banco sem nenhum): só com o código de instalação
+//   (variável SETUP_TOKEN no servidor, enviado no header "x-setup-token").
+//   Antes essa porta ficava aberta pra qualquer um enquanto não existisse
+//   admin - quem chegasse primeiro (ex: banco novo ou recriado) virava dono
+//   do sistema. O primeiro usuário é sempre admin.
+// - Depois disso, só quem está logado como admin cadastra outros, e o nível
+//   precisa ser "admin" ou "cozinha".
+// - Senha com pelo menos 10 caracteres (máximo 72: o bcrypt ignora o que passa disso).
+const NIVEIS_VALIDOS = ['admin', 'cozinha'];
+const SENHA_MINIMA = 10;
+const SENHA_MAXIMA = 72;
+const FORMATO_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Compara sem revelar, pelo tempo de resposta, quantos caracteres batem.
+function tokensIguais(a, b) {
+    const hash = (v) => crypto.createHash('sha256').update(String(v)).digest();
+    return crypto.timingSafeEqual(hash(a), hash(b));
+}
+
 exports.cadastrar = async (req, res) => {
     const { nome, email, senha, nivel } = req.body;
-    if (!nome || !email || !senha) return res.status(400).json({ erro: 'Dados incompletos.' });
+    if (typeof nome !== 'string' || typeof email !== 'string' || typeof senha !== 'string' ||
+        !nome.trim() || !email.trim() || !senha) {
+        return res.status(400).json({ erro: 'Dados incompletos.' });
+    }
+    if (nome.length > 100) return res.status(400).json({ erro: 'Nome muito longo (máximo 100 letras).' });
+    if (email.length > 150 || !FORMATO_EMAIL.test(email)) return res.status(400).json({ erro: 'E-mail inválido.' });
+    if (senha.length < SENHA_MINIMA || senha.length > SENHA_MAXIMA) {
+        return res.status(400).json({ erro: `A senha precisa ter de ${SENHA_MINIMA} a ${SENHA_MAXIMA} caracteres.` });
+    }
 
     try {
-        const totalUsuarios = await Usuario.contar();
+        const totalUsuarios = Number(await Usuario.contar());
+        let nivelFinal;
 
-        if (totalUsuarios > 0) {
+        if (totalUsuarios === 0) {
+            const esperado = process.env.SETUP_TOKEN || '';
+            if (esperado.length < 16) {
+                return res.status(403).json({ erro: 'Cadastro inicial desativado: defina SETUP_TOKEN (16+ caracteres) no servidor.' });
+            }
+            const enviado = req.headers['x-setup-token'];
+            if (typeof enviado !== 'string' || !tokensIguais(enviado, esperado)) {
+                return res.status(403).json({ erro: 'Código de instalação inválido.' });
+            }
+            nivelFinal = 'admin';
+        } else {
             const authHeader = req.headers.authorization;
             if (!authHeader || !authHeader.startsWith('Bearer ')) {
                 return res.status(401).json({ erro: 'Já existe um administrador cadastrado. Faça login como admin para cadastrar novos usuários.' });
@@ -60,12 +96,20 @@ exports.cadastrar = async (req, res) => {
             } catch (err) {
                 return res.status(401).json({ erro: 'Token inválido ou expirado.' });
             }
+            if (!NIVEIS_VALIDOS.includes(nivel)) {
+                return res.status(400).json({ erro: 'Nível inválido. Use "admin" ou "cozinha".' });
+            }
+            nivelFinal = nivel;
         }
 
         const senha_hash = await bcrypt.hash(senha, 10);
-        const id = await Usuario.criar({ nome, email, senha_hash, nivel });
+        const id = await Usuario.criar({ nome: nome.trim(), email: email.trim(), senha_hash, nivel: nivelFinal });
         res.status(201).json({ mensagem: 'Usuário criado com sucesso.', id });
     } catch (err) {
-        res.status(500).json({ erro: 'Erro ao criar usuário. O email já pode estar em uso.' });
+        if (err.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ erro: 'Esse e-mail já está em uso.' });
+        }
+        console.error('Erro ao criar usuário:', err.message);
+        res.status(500).json({ erro: 'Erro ao criar usuário.' });
     }
 };

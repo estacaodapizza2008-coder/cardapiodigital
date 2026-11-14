@@ -3,6 +3,6 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 
 router.post('/login', authController.login);
-router.post('/cadastrar', authController.cadastrar); // use uma vez para criar o admin, depois proteja/remova
+router.post('/cadastrar', authController.cadastrar); // 1º admin: exige SETUP_TOKEN; depois, só admin logado
 
 module.exports = router;

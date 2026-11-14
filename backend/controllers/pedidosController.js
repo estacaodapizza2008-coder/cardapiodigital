@@ -33,7 +33,19 @@ function validarEstrutura(body) {
     const erros = [];
     const { cliente_nome, tipo_entrega, forma_pagamento, itens } = body;
 
-    if (!cliente_nome || cliente_nome.trim().length < 2) erros.push('Nome do cliente é obrigatório.');
+    // Checar o TIPO antes de usar .trim(): se alguém mandasse um número ou
+    // objeto no lugar do nome, o .trim() dava erro fora do try/catch e
+    // derrubava o servidor inteiro (qualquer pessoa na internet podia fazer isso).
+    const texto = (v, max) => v === undefined || v === null || (typeof v === 'string' && v.length <= max);
+    if (typeof cliente_nome !== 'string' || cliente_nome.trim().length < 2) erros.push('Nome do cliente é obrigatório.');
+    else if (cliente_nome.length > 100) erros.push('Nome muito longo (máximo 100 letras).');
+    if (!texto(body.telefone, 20)) erros.push('Telefone inválido.');
+    if (!texto(body.endereco, 500)) erros.push('Endereço muito longo (máximo 500 letras).');
+    if (!texto(body.observacoes, 500)) erros.push('Observações muito longas (máximo 500 letras).');
+    if (body.cupom_codigo !== undefined && body.cupom_codigo !== null &&
+        (typeof body.cupom_codigo !== 'string' || body.cupom_codigo.length > 40)) {
+        erros.push('Código de cupom inválido.');
+    }
     if (!['local', 'retirada', 'entrega'].includes(tipo_entrega)) erros.push('Tipo de entrega inválido.');
     if (!['pix', 'cartao', 'dinheiro'].includes(forma_pagamento)) erros.push('Forma de pagamento inválida.');
     if (tipo_entrega === 'entrega' && (!body.telefone || !body.endereco)) {
@@ -47,7 +59,11 @@ function validarEstrutura(body) {
         // Sem isso, dava pra mandar quantidade negativa (ou fracionada) e
         // derrubar o total do pedido.
         itens.forEach((item, i) => {
-            const q = item && item.quantidade;
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                erros.push(`Item ${i + 1}: formato inválido.`);
+                return;
+            }
+            const q = item.quantidade;
             if (q !== undefined && q !== null && (!Number.isInteger(q) || q < 1 || q > MAX_QUANTIDADE)) {
                 erros.push(`Item ${i + 1}: quantidade inválida (de 1 a ${MAX_QUANTIDADE}).`);
             }
@@ -256,7 +272,7 @@ async function processarECriarPedido(req, mensagemSucesso) {
         Configuracao.obter()
     ]);
     if (erros.length > 0) {
-        return { status: 400, corpo: { erro: 'Itens do pedido inválidos', detalhes: erros } };
+        return { status: 400, corpo: { erro: erros.join(' '), detalhes: erros } };
     }
 
     const subtotal = itensProcessados.reduce((soma, item) => soma + item.preco_unitario * item.quantidade, 0);
@@ -330,7 +346,8 @@ async function processarECriarPedido(req, mensagemSucesso) {
 exports.criarPedido = async (req, res) => {
     const errosEstrutura = validarEstrutura(req.body);
     if (errosEstrutura.length > 0) {
-        return res.status(400).json({ erro: 'Dados do pedido inválidos', detalhes: errosEstrutura });
+        // "erro" leva a mensagem real (o cardápio mostra esse texto ao cliente)
+        return res.status(400).json({ erro: errosEstrutura.join(' '), detalhes: errosEstrutura });
     }
 
     try {
@@ -349,7 +366,7 @@ exports.criarPedido = async (req, res) => {
 exports.criarPedidoAdmin = async (req, res) => {
     const errosEstrutura = validarEstrutura(req.body);
     if (errosEstrutura.length > 0) {
-        return res.status(400).json({ erro: 'Dados do pedido inválidos', detalhes: errosEstrutura });
+        return res.status(400).json({ erro: errosEstrutura.join(' '), detalhes: errosEstrutura });
     }
 
     try {
@@ -365,31 +382,6 @@ exports.criarPedidoAdmin = async (req, res) => {
 // sozinha a cada novo dia operacional - sem precisar de nenhum botão de
 // "fechar o dia", é só uma questão de qual dia_operacional está em vigor
 // agora (ver backend/utils/diaOperacional.js).
-// Checkout do cliente: ao digitar o telefone completo, devolve nome e
-// endereço do pedido mais recente feito com esse número (se existir), pra
-// pré-preencher o formulário. Só aceita telefone com formato de telefone
-// (10 ou 11 dígitos) - evita usarem essa rota pra tentar buscar qualquer
-// string aleatória no banco.
-exports.buscarClientePorTelefone = async (req, res) => {
-    const digitos = String(req.params.telefone || '').replace(/\D/g, '');
-    if (digitos.length < 10 || digitos.length > 11) {
-        return res.status(400).json({ erro: 'Telefone inválido.' });
-    }
-
-    try {
-        const cliente = await Pedido.buscarDadosClientePorTelefone(digitos);
-        if (!cliente) return res.status(404).json({ erro: 'Nenhum pedido anterior encontrado com esse telefone.' });
-
-        res.json({
-            cliente_nome: cliente.cliente_nome,
-            endereco: cliente.endereco,
-            tipo_entrega: cliente.tipo_entrega
-        });
-    } catch (err) {
-        res.status(500).json({ erro: 'Erro ao buscar dados do cliente.' });
-    }
-};
-
 // Card "Acompanhar meu pedido": cliente informa nome + telefone (os dois
 // juntos, não só o telefone) e recebe o status do pedido mais recente com
 // esses dados. Só devolve o que o próprio cliente já sabe do pedido dele -

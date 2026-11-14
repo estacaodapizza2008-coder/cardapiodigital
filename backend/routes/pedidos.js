@@ -9,13 +9,12 @@ const { limitarBuscaCliente, limitarStatusPedido } = require('../middleware/limi
 // Público: cliente cria o pedido (bloqueado fora do horário de funcionamento)
 router.post('/', verificarHorarioFuncionamento, pedidosController.criarPedido);
 
-// Público: busca nome/endereço salvos de um telefone já usado antes, pra
-// pré-preencher o checkout. Rate limit próprio, mais apertado - ver limitadores.js.
-router.get('/cliente/:telefone', limitarBuscaCliente, pedidosController.buscarClientePorTelefone);
+// (Removida de propósito: a antiga rota "/cliente/:telefone" devolvia nome e
+// endereço de qualquer telefone, sem confirmação. O checkout agora lembra os
+// dados do cliente no próprio navegador dele - ver cliente.js.)
 
-// Público: card "Acompanhar meu pedido" - nome + telefone juntos, mesmo
-// limitador apertado da busca de cliente (mesma sensibilidade: expõe dado
-// pessoal pra quem souber nome+telefone).
+// Público: card "Acompanhar meu pedido" - nome + telefone juntos, com
+// limitador apertado (expõe dado do pedido pra quem souber nome+telefone).
 router.get('/rastrear', limitarBuscaCliente, pedidosController.rastrearPedido);
 
 // Público: polling leve do status (só pendente/preparo/saiu_entrega/entregue,
